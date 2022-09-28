@@ -1,7 +1,7 @@
 from lib2to3.pgen2.driver import Driver
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import ElementNotInteractableException,TimeoutException,UnexpectedAlertPresentException,ElementClickInterceptedException
+from selenium.common.exceptions import ElementNotInteractableException,TimeoutException,UnexpectedAlertPresentException,ElementClickInterceptedException,StaleElementReferenceException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -56,13 +56,16 @@ def get_links(date_start,date_end,driver):
     except TimeoutException:
         pass
 
-    try:
-        WebDriverWait(driver,10).until(EC.presence_of_element_located((By.CLASS_NAME,"article-item-extended")))
-        div_links = driver.find_elements(By.CLASS_NAME,"article-item-extended")
-        list_links = [div.find_element(By.TAG_NAME,"a").get_attribute("href") for div in div_links]
-        return list_links
-    except TimeoutException:
-        return []
+    while True:
+        try:
+            WebDriverWait(driver,10).until(EC.presence_of_element_located((By.CLASS_NAME,"article-item-extended")))
+            div_links = driver.find_elements(By.CLASS_NAME,"article-item-extended")
+            list_links = [div.find_element(By.TAG_NAME,"a").get_attribute("href") for div in div_links]
+            return list_links
+        except TimeoutException:
+            return []
+        except StaleElementReferenceException:
+            pass
 
     
 
