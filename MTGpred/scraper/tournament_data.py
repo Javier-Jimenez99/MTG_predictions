@@ -73,6 +73,7 @@ def scrape_tournament_data(tournament_link,driver):
     date_list = name_date[-3:]
     data["date"] = "-".join(date_list)
     data["name"] = " ".join(name_date[:-3])
+    data["link"] = tournament_link
 
     data["format"] = "other"
     for format in FORMATS_LISTS:
