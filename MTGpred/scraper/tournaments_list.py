@@ -9,7 +9,6 @@ import datetime as dt
 import typer
 
 def get_links(date_start,date_end,driver):
-
     # Filter dates
     date_start_field = driver.find_element(By.ID,"datepickerFrom")
     date_start_field.clear()
