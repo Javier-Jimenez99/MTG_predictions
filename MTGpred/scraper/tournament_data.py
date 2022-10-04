@@ -1,13 +1,14 @@
-from multiprocessing.sharedctypes import Value
 import typer
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 import re
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import json
 from tqdm import tqdm
+import datetime as dt
 
 
 FORMATS_LISTS = ["modern","standard","legacy","pauper","pioneer","historic","commander","sealed","draft"]
@@ -56,7 +57,10 @@ def scrape_deck(deck_element):
     data["name"] = deck_element.find_element(By.CLASS_NAME,"deck-meta").find_element(By.TAG_NAME,"h4").get_attribute('innerText').split("(")[0].strip().lower()
     
     main_cards_elements = WebDriverWait(deck_element,5).until(EC.presence_of_element_located((By.CLASS_NAME,"sorted-by-overview-container"))).find_elements(By.CLASS_NAME,"row")
-    sideboard_cards_elements = WebDriverWait(deck_element,5).until(EC.presence_of_element_located((By.CLASS_NAME,"sorted-by-sideboard-container"))).find_elements(By.CLASS_NAME,"row")
+    try:
+        sideboard_cards_elements = WebDriverWait(deck_element,5).until(EC.presence_of_element_located((By.CLASS_NAME,"sorted-by-sideboard-container"))).find_elements(By.CLASS_NAME,"row")
+    except TimeoutException:
+        sideboard_cards_elements = []
 
     data["main_deck"] = [scrape_card(e) for e in main_cards_elements]
     data["sideboard"] = [scrape_card(e) for e in sideboard_cards_elements]
@@ -70,8 +74,8 @@ def scrape_tournament_data(tournament_link,driver):
     # NAME, DATE AND FORMAT
     name_date = tournament_link.split("/")[-1].split("-")
 
-    date_list = name_date[-3:]
-    data["date"] = "-".join(date_list)
+    str_date = driver.find_element(By.CLASS_NAME,"posted-in").get_attribute('innerText').split("on")[-1].strip()
+    data["date"] = dt.datetime.strptime(str_date, "%B %d, %Y").strftime("%Y-%m-%d")
     data["name"] = " ".join(name_date[:-3])
     data["link"] = tournament_link
 
