@@ -125,6 +125,9 @@ def main(links_file_path:str = "data/tournament_links.txt", save_path: str = "da
     with open(links_file_path, "r") as f:
         links = f.read().splitlines()
 
+    # Make sure the links are unique
+    links = list(set(links))
+
     all_tournaments = []
 
     for i,link in tqdm(enumerate(links),desc="Scrapping tournaments",total=len(links)):
