@@ -48,6 +48,25 @@ def load_from_json(file_path):
     insert_tournament(data)
     return data
 
+def get_all_matches_ids():
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    matches = db.matches.find().distinct('_id')
+    return matches
+
+def get_match(id):
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    match = db.matches.find_one({"_id":id})
+
+    return match
+
+def get_deck(id):
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    deck = db.decks.find_one({"_id":id})
+    return deck
+
 def main(file_path: str = "data/tournaments.json"):
     load_from_json(file_path)
 
