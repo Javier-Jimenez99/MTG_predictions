@@ -20,9 +20,15 @@ def scrape_game(game_element):
     loser_text = player_elements[1].get_attribute('innerText')
 
     name_re =r'(\(\d+\))\s*(.*)'
-    winner_re = name_re + r'\,\s*(\d+)\-(\d+)'
+    points_re = r'\,\s*(\d+)\-(\d+)'
+    winner_re = name_re + points_re
     winner_search = re.search(winner_re,winner_text)
-    loser_search = re.search(name_re,loser_text)
+
+    loser_re = name_re
+    if re.search(points_re,loser_text):
+        loser_re += points_re
+
+    loser_search = re.search(loser_re,loser_text)
     
     return [
         { 
