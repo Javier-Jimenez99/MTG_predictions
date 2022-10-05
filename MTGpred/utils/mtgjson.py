@@ -22,7 +22,6 @@ def load_cards_df(data_path:str="data\AtomicCards.json"):
     return df
 
 def parse_mana_cost(mana_cost):
-    print(mana_cost)
     mana_parsed = ""
     for v in mana_cost[:-1]:
         if v=="W":
@@ -45,10 +44,7 @@ def parse_mana_cost(mana_cost):
             mana_parsed += " ".join(["corlorless"]*int(v))
         else:
             mana_parsed += " "
-        
-
-
-
+            
     return mana_cost
         
 
