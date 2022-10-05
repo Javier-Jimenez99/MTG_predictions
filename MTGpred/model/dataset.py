@@ -1,12 +1,12 @@
 from torch.utils.data import Dataset
 from MTGpred.utils.mtgjson import load_cards_df,parse_mana_cost
-from MTGpred.utils.database import get_all_matches_ids, get_match, get_deck
+from MTGpred.utils.database import get_match, get_deck
 from transformers import AutoTokenizer, AutoModel
 import torch
 import re
 import pandas as pd
 
-class Matches(Dataset):
+class MatchesDataset(Dataset):
     def __init__(self,cards_df,matches_ids):
         self.cards_df = cards_df
         self.matches_ids = matches_ids
@@ -36,7 +36,6 @@ class Matches(Dataset):
             tokenized_card = self.tokenizer(input_text,return_tensors="pt")
             
             card_encoded = self.encoder(**tokenized_card)["pooler_output"]
-            print(card_encoded.shape)
 
             all_variations.append(torch.cat([card_encoded]))
 
@@ -64,5 +63,22 @@ class Matches(Dataset):
 
         p1_deck = self.preprocess_deck(match_data["p1_deck"])
         p2_deck = self.preprocess_deck(match_data["p2_deck"])
+        
+        p1_deck_shape = p1_deck.shape
+        p2_deck_shape = p2_deck.shape
 
-        return p1_deck,p2_deck
+        p1_empty_matrix = torch.zeros((100 - p1_deck_shape[0],p1_deck_shape[1]))
+        p2_empty_matrix = torch.zeros((100 - p2_deck_shape[0],p2_deck_shape[1]))
+
+        p1_deck = torch.cat([p1_deck,p1_empty_matrix])
+        p2_deck = torch.cat([p2_deck,p2_empty_matrix])
+
+        # Random number 0 or 1
+        random_number = torch.randint(0,2,(1,1))
+        # If 0, p1 wins, if 1, p2 wins
+        if random_number == 0:
+            return torch.stack((p1_deck,p2_deck)), int(match_data["p1_points"] < match_data["p2_points"])
+        else:
+            return torch.stack((p2_deck,p1_deck)), int(match_data["p2_points"] < match_data["p1_points"])
+
+        
