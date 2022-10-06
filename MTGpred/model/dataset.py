@@ -21,7 +21,7 @@ class MatchesDataset(Dataset):
         name = card["name"]
         quantity = int(card["quantity"])
         all_variations = []
-        for index,variations in self.cards_df[self.cards_df["name"] == name].iterrows():
+        for index,variations in self.cards_df[(self.cards_df["faceName"] == name) | (self.cards_df["name"] == name)].iterrows():
             mana_cost = parse_mana_cost(variations["manaCost"]) if not pd.isna(variations["manaCost"]) else ""
 
             card_type = variations["type"]
@@ -38,7 +38,7 @@ class MatchesDataset(Dataset):
             
             card_encoded = self.encoder(**tokenized_card)["pooler_output"]
 
-            if self.device == "cuda":
+            if str(self.device) == "cuda":   
                 card_encoded = card_encoded.cpu()
 
             all_variations.append(torch.cat([card_encoded] * quantity))
@@ -46,7 +46,10 @@ class MatchesDataset(Dataset):
         if len(all_variations) > 1:
             return torch.cat(all_variations)
         else:
-            return all_variations[0]
+            try:
+                return all_variations[0]
+            except IndexError:
+                print(all_variations,card)
         
     def preprocess_deck(self,deck_id):
         deck_data = get_deck(deck_id)
