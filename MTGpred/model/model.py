@@ -81,15 +81,16 @@ class WinnerPredictor(nn.Module):
         return winner
 
 def accuracy(y_pred,y_true):
+    y_pred = torch.round(y_pred)
     return (y_pred == y_true).sum().item()/len(y_pred)
 
-def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,cards_path = "data/AtomicCards.json",cuda=True,save_path="models/model.pt"):
+def train(split_ratio:float=0.8,batch_size:int=6,epochs:int=5,lr:float=0.0001,cards_path = "data/AtomicCards.json",cuda=True,save_path="models/model.pt"):
     device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 
     # Load data
     all_matches_ids = get_all_matches_ids()
     random.shuffle(all_matches_ids)
-    all_matches_ids = all_matches_ids[:1000]
+    all_matches_ids = all_matches_ids[:4000]
     split = int(len(all_matches_ids)*split_ratio)
     train_matches_ids = all_matches_ids[:split]
     test_matches_ids = all_matches_ids[split:]
@@ -114,6 +115,7 @@ def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,
             target = target.to(device).to(torch.float32)
             optimizer.zero_grad()
             winner = model(input[:,0],input[:,1])
+            #print(winner,target,accuracy(winner,target))
             loss = criterion(winner,target)
             loss.backward()
             optimizer.step()
@@ -129,7 +131,7 @@ def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,
                 winner = model(input[:,0],input[:,1])
                 loss = criterion(winner,target)
                 test_losses.append(loss.item())
-                accuracies.append(accuracy(winner,target > 0.5))
+                accuracies.append(accuracy(winner,target))
             print(f"Test loss: {sum(test_losses)/len(test_losses)}")
             print(f"Test accuracy: {sum(accuracies)/len(accuracies)}")
 
