@@ -13,6 +13,9 @@ def load_cards_df(data_path:str="data\AtomicCards.json"):
 
             parsed_card = card
             parsed_card["name"] = new_name
+
+            if "faceName" not in card.keys():
+                parsed_card["faceName"] = new_name
             
             all_cards.append(parsed_card)
 
