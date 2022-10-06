@@ -7,6 +7,7 @@ from MTGpred.model.dataset import MatchesDataset
 from MTGpred.utils.mtgjson import load_cards_df
 import random
 from tqdm import tqdm
+import typer
 
 class DeckEncoder(nn.Module):
     def __init__(self):
@@ -82,7 +83,7 @@ class WinnerPredictor(nn.Module):
 def accuracy(y_pred,y_true):
     return (y_pred == y_true).sum().item()/len(y_pred)
 
-def train(split_ratio=0.8,batch_size=16,epochs=10,lr=0.001,cards_path = "data\AtomicCards.json",cuda=True):
+def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,cards_path = "data/AtomicCards.json",cuda=True):
     device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 
     # Load data
@@ -132,3 +133,7 @@ def train(split_ratio=0.8,batch_size=16,epochs=10,lr=0.001,cards_path = "data\At
             print(f"Test accuracy: {sum(accuracies)/len(accuracies)}")
 
     # Save model
+    torch.save(model.state_dict(),"model.pt")
+
+if __name__ == "__main__":
+    typer.run(train)
