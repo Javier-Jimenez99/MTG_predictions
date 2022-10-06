@@ -25,7 +25,6 @@ def insert_tournament(tournament_data):
                 p1_deck_id = p1_deck_insert_result.inserted_id
                 p2_deck_id = p2_deck_insert_result.inserted_id
 
-
                 match_data = {
                     "p1_name": player1["name"],
                     "p1_deck": p1_deck_id,
@@ -34,6 +33,7 @@ def insert_tournament(tournament_data):
                     "p2_deck": p2_deck_id,
                     "p2_points": player2["points"],
                 }
+                
                 match_inserted_results = db.matches.insert_one(match_data)
                 round_matches.append(match_inserted_results.inserted_id)
 
