@@ -94,10 +94,8 @@ class MatchesDataset(Dataset):
         all_variations = []
 
         selected_card = self.cards_df[(self.cards_df["faceName"] == simplified_name) | (self.cards_df["name"] == simplified_name)]
-        if len(selected_card)>1:
-            print(name,selected_card[["name","faceName"]])
-        elif len(selected_card)==0:
-            print(f"WARNING: {name} cant be found in the database")
+        if len(selected_card)==0:
+            print(f"WARNING: {name} cant be found in the database. Will be removed from the deck.")
             return torch.zeros((1,768))
 
         for index,variations in selected_card.iterrows():
