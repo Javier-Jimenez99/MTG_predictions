@@ -6,6 +6,73 @@ import torch
 import re
 import pandas as pd
 
+ACCENTS = {
+    "á": "a",
+    "é": "e",
+    "í": "i",
+    "ó": "o",
+    "ú": "u",
+    "ü": "u",
+    "ñ": "n",
+    "Á": "A",
+    "É": "E",
+    "Í": "I",
+    "Ó": "O",
+    "Ú": "U",
+    "Ü": "U",
+    "Ñ": "N",
+    "è": "e",
+    "È": "E",
+    "à": "a",
+    "À": "A",
+    "ì": "i",
+    "Ì": "I",
+    "ò": "o",
+    "Ò": "O",
+    "ù": "u",
+    "Ù": "U",
+    "ç": "c",
+    "Ç": "C",
+    "ÿ": "y",
+    "Ÿ": "Y",
+    "â": "a",
+    "Â": "A",
+    "ê": "e",
+    "Ê": "E",
+    "î": "i",
+    "Î": "I",
+    "ô": "o",
+    "Ô": "O",
+    "û": "u",
+    "Û": "U",
+    "ä": "a",
+    "Ä": "A",
+    "ë": "e",
+    "Ë": "E",
+    "ï": "i",
+    "Ï": "I",
+    "ö": "o",
+    "Ö": "O",
+    "ü": "u",
+    "Ü": "U",
+    "æ": "ae",
+    "Æ": "AE",
+    "œ": "oe",
+    "Œ": "OE",
+}
+
+def strip_accents(s):
+    for k,v in ACCENTS.items():
+        s = s.replace(k,v)
+    return s
+
+def simplify_name(name):
+    name = name.lower()
+    name = strip_accents(name)
+    name = name.replace("-"," ").replace("'","").replace(",","").replace(".","")
+    name = name.strip()
+    return name
+
 class MatchesDataset(Dataset):
     def __init__(self,cards_df,matches_ids,device):
         self.cards_df = cards_df
@@ -14,14 +81,26 @@ class MatchesDataset(Dataset):
         self.encoder = AutoModel.from_pretrained("bert-base-uncased").to(device)
         self.device = device
 
+        self.cards_df["faceName"] = self.cards_df["faceName"].apply(simplify_name)
+        self.cards_df["name"] = self.cards_df["name"].apply(simplify_name)
+
     def __len__(self):
         return len(self.matches_ids)
 
     def preprocess_card(self,card):
         name = card["name"]
+        simplified_name = simplify_name(name)
         quantity = int(card["quantity"])
         all_variations = []
-        for index,variations in self.cards_df[(self.cards_df["faceName"] == name) | (self.cards_df["name"] == name)].iterrows():
+
+        selected_card = self.cards_df[(self.cards_df["faceName"] == simplified_name) | (self.cards_df["name"] == simplified_name)]
+        if len(selected_card)>1:
+            print(name,selected_card[["name","faceName"]])
+        elif len(selected_card)==0:
+            print(f"WARNING: {name} cant be found in the database")
+            return torch.zeros((1,768))
+
+        for index,variations in selected_card.iterrows():
             mana_cost = parse_mana_cost(variations["manaCost"]) if not pd.isna(variations["manaCost"]) else ""
 
             card_type = variations["type"]
@@ -46,10 +125,7 @@ class MatchesDataset(Dataset):
         if len(all_variations) > 1:
             return torch.cat(all_variations)
         else:
-            try:
-                return all_variations[0]
-            except IndexError:
-                print(all_variations,card)
+            return all_variations[0]
         
     def preprocess_deck(self,deck_id):
         deck_data = get_deck(deck_id)
@@ -74,8 +150,8 @@ class MatchesDataset(Dataset):
         p1_deck_shape = p1_deck.shape
         p2_deck_shape = p2_deck.shape
 
-        p1_empty_matrix = torch.zeros((100 - p1_deck_shape[0],p1_deck_shape[1]))
-        p2_empty_matrix = torch.zeros((100 - p2_deck_shape[0],p2_deck_shape[1]))
+        p1_empty_matrix = torch.zeros((120 - p1_deck_shape[0],p1_deck_shape[1]))
+        p2_empty_matrix = torch.zeros((120 - p2_deck_shape[0],p2_deck_shape[1]))
 
         p1_deck = torch.cat([p1_deck,p1_empty_matrix])
         p2_deck = torch.cat([p2_deck,p2_empty_matrix])
