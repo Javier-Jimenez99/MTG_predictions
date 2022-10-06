@@ -41,7 +41,7 @@ class MatchesDataset(Dataset):
             if self.device == "cuda":
                 card_encoded = card_encoded.cpu()
 
-            all_variations.append(torch.cat([card_encoded]))
+            all_variations.append(torch.cat([card_encoded] * quantity))
 
         if len(all_variations) > 1:
             return torch.cat(all_variations)
