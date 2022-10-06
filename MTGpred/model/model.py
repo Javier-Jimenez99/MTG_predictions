@@ -82,7 +82,9 @@ class WinnerPredictor(nn.Module):
 def accuracy(y_pred,y_true):
     return (y_pred == y_true).sum().item()/len(y_pred)
 
-def train(split_ratio=0.8,batch_size=16,epochs=10,lr=0.001,cards_path = "data\AtomicCards.json"):
+def train(split_ratio=0.8,batch_size=16,epochs=10,lr=0.001,cards_path = "data\AtomicCards.json",cuda=True):
+    device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
+
     # Load data
     all_matches_ids = get_all_matches_ids()
     random.shuffle(all_matches_ids)
@@ -91,24 +93,27 @@ def train(split_ratio=0.8,batch_size=16,epochs=10,lr=0.001,cards_path = "data\At
     test_matches_ids = all_matches_ids[split:]
 
     cards_df = load_cards_df(cards_path)
-    train_dataset = MatchesDataset(cards_df,train_matches_ids)
-    test_dataset = MatchesDataset(cards_df,test_matches_ids)
+    train_dataset = MatchesDataset(cards_df,train_matches_ids,device)
+    test_dataset = MatchesDataset(cards_df,test_matches_ids,device)
 
     train_dataloader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True)
     test_dataloader = DataLoader(test_dataset,batch_size=batch_size,shuffle=True)
 
     # Train model
-    model = WinnerPredictor()
+    model = WinnerPredictor().to(device)
     optimizer = torch.optim.Adam(model.parameters(),lr=lr)
     criterion = nn.BCELoss()
 
     for epoch in range(epochs):
         print(f"======= EPOCH {epoch+1}/{epochs} =======")
         train_losses = []
-        for input,output in tqdm(train_dataloader,desc="TRAIN"):
+        for batch in tqdm(train_dataloader,desc="TRAIN"):
+            print(batch)
+            input = batch[0].to(device)
+            target = batch[1].to(device)
             optimizer.zero_grad()
             winner = model(input[:,0],input[:,1])
-            loss = criterion(winner,output)
+            loss = criterion(winner,target)
             loss.backward()
             optimizer.step()
             train_losses.append(loss.item())

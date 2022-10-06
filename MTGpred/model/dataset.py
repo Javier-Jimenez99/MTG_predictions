@@ -7,11 +7,12 @@ import re
 import pandas as pd
 
 class MatchesDataset(Dataset):
-    def __init__(self,cards_df,matches_ids):
+    def __init__(self,cards_df,matches_ids,device):
         self.cards_df = cards_df
         self.matches_ids = matches_ids
         self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-        self.encoder = AutoModel.from_pretrained("bert-base-uncased")
+        self.encoder = AutoModel.from_pretrained("bert-base-uncased").to(device)
+        self.device = device
 
     def __len__(self):
         return len(self.matches_ids)
@@ -33,9 +34,12 @@ class MatchesDataset(Dataset):
             stats = f"{variations['power']} power, {variations['power']} power"
             input_text = " <SEP> ".join([name,mana_cost,card_type,text,stats])
 
-            tokenized_card = self.tokenizer(input_text,return_tensors="pt")
+            tokenized_card = self.tokenizer(input_text,return_tensors="pt").to(self.device)
             
             card_encoded = self.encoder(**tokenized_card)["pooler_output"]
+
+            if self.device == "cuda":
+                card_encoded = card_encoded.cpu()
 
             all_variations.append(torch.cat([card_encoded]))
 
