@@ -83,12 +83,13 @@ class WinnerPredictor(nn.Module):
 def accuracy(y_pred,y_true):
     return (y_pred == y_true).sum().item()/len(y_pred)
 
-def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,cards_path = "data/AtomicCards.json",cuda=True):
+def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,cards_path = "data/AtomicCards.json",cuda=True,save_path="models/model.pt"):
     device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 
     # Load data
     all_matches_ids = get_all_matches_ids()
     random.shuffle(all_matches_ids)
+    all_matches_ids = all_matches_ids[:1000]
     split = int(len(all_matches_ids)*split_ratio)
     train_matches_ids = all_matches_ids[:split]
     test_matches_ids = all_matches_ids[split:]
@@ -132,8 +133,8 @@ def train(split_ratio:float=0.8,batch_size:int=4,epochs:int=10,lr:float=0.00001,
             print(f"Test loss: {sum(test_losses)/len(test_losses)}")
             print(f"Test accuracy: {sum(accuracies)/len(accuracies)}")
 
-    # Save model
-    torch.save(model.state_dict(),"model.pt")
+        # Save model
+        torch.save(model.state_dict(),save_path)
 
 if __name__ == "__main__":
     typer.run(train)
