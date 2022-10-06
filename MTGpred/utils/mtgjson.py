@@ -1,7 +1,7 @@
 import json
 import pandas as pd
 
-def load_cards_df(data_path:str="data\AtomicCards.json"):
+def load_cards_df(data_path:str="data/AtomicCards.json"):
     all_cards_json = json.load(open(data_path, encoding="utf8"))["data"]
 
     all_cards = []
@@ -18,7 +18,6 @@ def load_cards_df(data_path:str="data\AtomicCards.json"):
                 parsed_card["faceName"] = new_name
             
             all_cards.append(parsed_card)
-
 
     df = pd.DataFrame(all_cards)
 
