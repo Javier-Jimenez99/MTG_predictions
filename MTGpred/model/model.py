@@ -8,7 +8,6 @@ from MTGpred.utils.mtgjson import load_cards_df
 import random
 from tqdm import tqdm
 import typer
-from matplotlib import pyplot as plt
 import wandb
 
 class DeckEncoder(nn.Module):
@@ -94,7 +93,6 @@ def train(
     cards_path:str = "data/AtomicCards.json",
     cuda:bool=True,
     save_path:str="models/model.pt",
-    graphics_path:str="results",
     use_wandb:bool = True,
 ):
     if use_wandb:
@@ -146,11 +144,6 @@ def train(
 
             if use_wandb:
                 wandb.log({"train_loss":loss.item(),"step":total_steps,"lr":optimizer.param_groups[0]["lr"]})
-
-            if total_steps != 0 and total_steps % 100 == 0:
-                plt.plot(list(range(len(all_losses))),all_losses)
-                plt.title(f"Training loss during {total_steps} steps")
-                plt.savefig(f"{graphics_path}/training_loss.png")
 
         print(f"Train loss: {sum(train_losses)/len(train_losses)}")
 
