@@ -69,12 +69,12 @@ def strip_accents(s):
 def simplify_name(name):
     name = name.lower()
     name = strip_accents(name)
-    name = name.replace("-"," ").replace("'","").replace(",","").replace(".","")
+    name = name.replace("-"," ").replace("'","").replace(",","").replace(".","").replace("?amp?","").replace("&","")
     name = name.strip()
     return name
 
 class MatchesDataset(Dataset):
-    def __init__(self,cards_df,matches_ids,device):
+    def __init__(self,cards_df,matches_ids,device,cache:dict=None,query_cache:dict=None):
         self.cards_df = cards_df
         self.matches_ids = matches_ids
         self.tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
@@ -83,6 +83,9 @@ class MatchesDataset(Dataset):
 
         self.cards_df["faceName"] = self.cards_df["faceName"].apply(simplify_name)
         self.cards_df["name"] = self.cards_df["name"].apply(simplify_name)
+
+        self.cache = cache if cache is not None else {}
+        self.query_cache = query_cache if query_cache is not None else {}
 
     def __len__(self):
         return len(self.matches_ids)
@@ -99,24 +102,39 @@ class MatchesDataset(Dataset):
             return torch.zeros((1,768))
 
         for index,variations in selected_card.iterrows():
-            mana_cost = parse_mana_cost(variations["manaCost"]) if not pd.isna(variations["manaCost"]) else ""
+            card_encoded = None
 
-            card_type = variations["type"]
+            if index in self.cache.keys():
+                card_encoded = self.cache[index]
+                self.query_cache[index] += 1
+            else:
+                mana_cost = parse_mana_cost(variations["manaCost"]) if not pd.isna(variations["manaCost"]) else ""
 
-            text = variations["text"] if not pd.isna(variations["text"]) else ""
-            mana_in_text = re.findall(r"\{\}",text)
-            for mana in mana_in_text:
-                text = text.replace(mana,parse_mana_cost(mana))
+                card_type = variations["type"]
 
-            stats = f"{variations['power']} power, {variations['power']} power"
-            input_text = " <SEP> ".join([name,mana_cost,card_type,text,stats])
+                text = variations["text"] if not pd.isna(variations["text"]) else ""
+                mana_in_text = re.findall(r"\{\}",text)
+                for mana in mana_in_text:
+                    text = text.replace(mana,parse_mana_cost(mana))
 
-            tokenized_card = self.tokenizer(input_text,return_tensors="pt").to(self.device)
-            
-            card_encoded = self.encoder(**tokenized_card)["pooler_output"]
+                stats = f"{variations['power']} power, {variations['power']} power"
+                input_text = " <SEP> ".join([name,mana_cost,card_type,text,stats])
 
-            if str(self.device) == "cuda":   
-                card_encoded = card_encoded.cpu()
+                tokenized_card = self.tokenizer(input_text,return_tensors="pt").to(self.device)
+                with torch.no_grad():
+                    card_encoded = self.encoder(**tokenized_card)["pooler_output"]
+
+                if str(self.device) == "cuda":   
+                    card_encoded = card_encoded.cpu()
+
+                if len(self.cache.keys()) >= 1000:
+                    # Remove the lest used card from the cache
+                    min_key = min(self.query_cache, key=self.query_cache.get)
+                    del self.cache[min_key]
+                    del self.query_cache[min_key]
+
+                self.cache[index] = card_encoded
+                self.query_cache[index] = 1
 
             all_variations.append(torch.cat([card_encoded] * quantity))
 
