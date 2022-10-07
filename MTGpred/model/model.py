@@ -8,6 +8,8 @@ from MTGpred.utils.mtgjson import load_cards_df
 import random
 from tqdm import tqdm
 import typer
+from matplotlib import pyplot as plt
+import wandb
 
 class DeckEncoder(nn.Module):
     def __init__(self):
@@ -84,20 +86,35 @@ def accuracy(y_pred,y_true):
     y_pred = torch.round(y_pred)
     return (y_pred == y_true).sum().item()/len(y_pred)
 
-def train(split_ratio:float=0.8,batch_size:int=6,epochs:int=5,lr:float=0.0001,cards_path = "data/AtomicCards.json",cuda=True,save_path="models/model.pt"):
+def train(
+    split_ratio:float=0.9,
+    batch_size:int=64,
+    epochs:int=10,
+    lr:float=0.001,
+    cards_path:str = "data/AtomicCards.json",
+    cuda:bool=True,
+    save_path:str="models/model.pt",
+    graphics_path:str="results",
+    use_wandb:bool = True,
+):
+    if use_wandb:
+        run=wandb.init(project="MTGpred",reinit=True)
+
     device = torch.device("cuda" if cuda and torch.cuda.is_available() else "cpu")
 
     # Load data
     all_matches_ids = get_all_matches_ids()
     random.shuffle(all_matches_ids)
-    all_matches_ids = all_matches_ids[:4000]
+    #all_matches_ids = all_matches_ids[:4000]
     split = int(len(all_matches_ids)*split_ratio)
     train_matches_ids = all_matches_ids[:split]
     test_matches_ids = all_matches_ids[split:]
 
     cards_df = load_cards_df(cards_path)
-    train_dataset = MatchesDataset(cards_df,train_matches_ids,device)
-    test_dataset = MatchesDataset(cards_df,test_matches_ids,device)
+    cache = {}
+    query_cache = {}
+    train_dataset = MatchesDataset(cards_df,train_matches_ids,device,cache,query_cache)
+    test_dataset = MatchesDataset(cards_df,test_matches_ids,device,cache,query_cache)
 
     train_dataloader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True)
     test_dataloader = DataLoader(test_dataset,batch_size=batch_size,shuffle=True)
@@ -105,8 +122,11 @@ def train(split_ratio:float=0.8,batch_size:int=6,epochs:int=5,lr:float=0.0001,ca
     # Train model
     model = WinnerPredictor().to(device)
     optimizer = torch.optim.Adam(model.parameters(),lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=200, T_mult=2, eta_min=0.00001, last_epoch=-1)
     criterion = nn.BCELoss()
 
+    all_losses = []
+    total_steps = 0
     for epoch in range(epochs):
         print(f"======= EPOCH {epoch+1}/{epochs} =======")
         train_losses = []
@@ -119,7 +139,19 @@ def train(split_ratio:float=0.8,batch_size:int=6,epochs:int=5,lr:float=0.0001,ca
             loss = criterion(winner,target)
             loss.backward()
             optimizer.step()
+            scheduler.step()
             train_losses.append(loss.item())
+            all_losses.append(loss.item())
+            total_steps += 1
+
+            if use_wandb:
+                wandb.log({"train_loss":loss.item(),"step":total_steps,"lr":optimizer.param_groups[0]["lr"]})
+
+            if total_steps != 0 and total_steps % 100 == 0:
+                plt.plot(list(range(len(all_losses))),all_losses)
+                plt.title(f"Training loss during {total_steps} steps")
+                plt.savefig(f"{graphics_path}/training_loss.png")
+
         print(f"Train loss: {sum(train_losses)/len(train_losses)}")
 
         with torch.no_grad():
@@ -132,8 +164,13 @@ def train(split_ratio:float=0.8,batch_size:int=6,epochs:int=5,lr:float=0.0001,ca
                 loss = criterion(winner,target)
                 test_losses.append(loss.item())
                 accuracies.append(accuracy(winner,target))
+
+                if use_wandb:
+                    wandb.log({"test_loss":loss.item()})
             print(f"Test loss: {sum(test_losses)/len(test_losses)}")
             print(f"Test accuracy: {sum(accuracies)/len(accuracies)}")
+            if use_wandb:
+                wandb.log({"test_accuracy":sum(accuracies)/len(accuracies)})
 
         # Save model
         torch.save(model.state_dict(),save_path)
