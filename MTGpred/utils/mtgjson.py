@@ -38,6 +38,8 @@ def parse_mana_cost(mana_cost):
             mana_parsed += "green"
         elif v=="P":
             mana_parsed += "life"
+        elif v=="T":
+            mana_parsed += "tap"
         elif v=="{":
             continue
         elif v=="}":
