@@ -2,6 +2,7 @@ from pymongo import MongoClient
 import json
 import typer
 
+
 def insert_tournament(tournament_data):
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
@@ -11,7 +12,9 @@ def insert_tournament(tournament_data):
     for tournament in tournament_data:
         tournament_insert_data = {
             "name": tournament["name"],
-            "date":tournament["date"],#dt.datetime.strptime(tournament["date"], "%Y-%m-%d"),
+            "date": tournament[
+                "date"
+            ],  # dt.datetime.strptime(tournament["date"], "%Y-%m-%d"),
             "format": tournament["format"],
         }
 
@@ -33,7 +36,7 @@ def insert_tournament(tournament_data):
                     "p2_deck": p2_deck_id,
                     "p2_points": player2["points"],
                 }
-                
+
                 match_inserted_results = db.matches.insert_one(match_data)
                 round_matches.append(match_inserted_results.inserted_id)
 
@@ -48,29 +51,60 @@ def load_from_json(file_path):
     insert_tournament(data)
     return data
 
+
 def get_all_matches_ids():
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
-    matches = db.matches.find().distinct('_id')
+    matches = db.matches.find().distinct("_id")
     return matches
+
+
+def get_all_decks():
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    decks = db.decks.find()
+    return decks
+
+
+def get_all_tournaments():
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    tournaments = db.tournaments.find()
+    return tournaments
+
+
+def get_matches_id_by_format(tournament_format):
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    tournaments = db.tournaments.find({"format": tournament_format})
+    matches = []
+    for t in tournaments:
+        for round_name in ["quarterfinals", "semifinals", "finals"]:
+            for match_id in t[round_name]:
+                match = db.matches.find_one({"_id": match_id})["_id"]
+                matches.append(match)
+
+    return matches
+
 
 def get_match(id):
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
-    match = db.matches.find_one({"_id":id})
+    match = db.matches.find_one({"_id": id})
 
     return match
+
 
 def get_deck(id):
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
-    deck = db.decks.find_one({"_id":id})
+    deck = db.decks.find_one({"_id": id})
     return deck
+
 
 def main(file_path: str = "data/tournaments.json"):
     load_from_json(file_path)
 
+
 if __name__ == "__main__":
     typer.run(load_from_json)
-
-
