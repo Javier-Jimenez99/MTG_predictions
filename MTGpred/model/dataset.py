@@ -405,13 +405,15 @@ class MatchesDataset3(Dataset):
     def get_deck_text(self, deck_id):
         deck_data = get_deck(deck_id)
 
-        all_cards = []
+        all_cards = ["Main deck:"]
 
         for card in deck_data["main_deck"]:
             all_cards.extend(self.preprocess_card(card))
 
         for card in deck_data["sideboard"]:
             all_cards.extend(self.preprocess_card(card))
+
+        all_cards.append("Sideboard:")
 
         deck_text = self.tokenizer.sep_token.join(all_cards)
 
@@ -446,11 +448,130 @@ class MatchesDataset3(Dataset):
             return (
                 p1_deck,
                 p2_deck,
-                int(match_data["p1_points"]) * 0.5 - int(match_data["p2_points"]) * 0.5,
+                int(int(match_data["p1_points"]) < int(match_data["p2_points"])),
             )
         else:
             return (
                 p2_deck,
                 p1_deck,
-                int(match_data["p2_points"]) * 0.5 - int(match_data["p1_points"]) * 0.5,
+                int(int(match_data["p2_points"]) < int(match_data["p1_points"])),
             )
+
+
+class MatchesDataset4(Dataset):
+    def __init__(
+        self,
+        cards_df,
+        matches_ids,
+        model_name="google/bigbird-roberta-base",
+        random_output=True,
+    ):
+        self.cards_df = cards_df
+        self.matches_ids = matches_ids
+        self.tokenizer = BigBirdTokenizer.from_pretrained(model_name)
+
+        self.cards_df["faceName"] = self.cards_df["faceName"].apply(simplify_name)
+        self.cards_df["name"] = self.cards_df["name"].apply(simplify_name)
+        self.random_output = random_output
+
+    def __len__(self):
+        return len(self.matches_ids)
+
+    def preprocess_card(self, card):
+        name = card["name"]
+        simplified_name = simplify_name(name)
+        quantity = int(card["quantity"])
+        all_variations = []
+
+        selected_card = self.cards_df[
+            (self.cards_df["faceName"] == simplified_name)
+            | (self.cards_df["name"] == simplified_name)
+        ]
+        if len(selected_card) == 0:
+            print(
+                f"WARNING: {name} cant be found in the database. Will be removed from the deck."
+            )
+            return []
+
+        for index, variations in selected_card.iterrows():
+            mana_cost = (
+                parse_mana_cost(variations["manaCost"])
+                if not pd.isna(variations["manaCost"])
+                else ""
+            )
+
+            card_type = variations["type"]
+
+            text = variations["text"] if not pd.isna(variations["text"]) else ""
+            mana_in_text = re.findall(r"\{.*\}", text)
+            for mana in mana_in_text:
+                text = text.replace(mana, parse_mana_cost(mana))
+
+            stats = f"{variations['power']} power, {variations['power']} power"
+            quantity_text = f"{quantity} copies"
+            input_text = self.tokenizer.sep_token.join(
+                [quantity_text, name, mana_cost, card_type, text, stats]
+            )
+
+            all_variations.append(input_text)
+
+        return all_variations
+
+    def get_deck_text(self, deck_id):
+        deck_data = get_deck(deck_id)
+
+        all_cards = ["Main deck:"]
+
+        for card in deck_data["main_deck"]:
+            all_cards.extend(self.preprocess_card(card))
+
+        for card in deck_data["sideboard"]:
+            all_cards.extend(self.preprocess_card(card))
+
+        all_cards.append("Sideboard:")
+
+        deck_text = self.tokenizer.sep_token.join(all_cards)
+
+        tokenized_deck = self.tokenizer(
+            deck_text,
+            return_tensors="pt",
+            padding="max_length",
+            max_length=2560,
+            truncation=True,
+        )
+
+        batch_encoding_data = {}
+        for k, v in tokenized_deck.items():
+            batch_encoding_data[k] = v.squeeze()
+
+        return BatchEncoding(batch_encoding_data)
+
+    def get_match_id(self, idx):
+        return self.matches_ids[idx]
+
+    def __getitem__(self, idx):
+        match_id = self.matches_ids[idx]
+        match_data = get_match(match_id)
+
+        p1_deck = self.get_deck_text(match_data["p1_deck"])
+        p2_deck = self.get_deck_text(match_data["p2_deck"])
+
+        # Random number 0 or 1
+        random_number = torch.randint(0, 2, (1, 1))
+        # If 0, p1 wins, if 1, p2 wins
+        if not self.random_output or random_number == 0:
+            return {
+                "deck1": p1_deck,
+                "deck2": p2_deck,
+                "label": int(
+                    int(match_data["p1_points"]) < int(match_data["p2_points"])
+                ),
+            }
+        else:
+            return {
+                "deck1": p2_deck,
+                "deck2": p1_deck,
+                "label": int(
+                    int(match_data["p2_points"]) < int(match_data["p1_points"])
+                ),
+            }

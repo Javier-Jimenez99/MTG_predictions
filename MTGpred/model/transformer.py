@@ -1,23 +1,21 @@
 import random
-from pickle import FALSE
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import typer
 import wandb
 from MTGpred.model.dataset import MatchesDataset3
 from MTGpred.utils.database import get_all_matches_ids
 from MTGpred.utils.mtgjson import load_cards_df
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import (
-    AdamW,
     BigBirdForSequenceClassification,
+    AdamW,
     get_cosine_schedule_with_warmup,
 )
+import deepspeed
 
 
 def get_space_left():
@@ -32,12 +30,12 @@ def get_space_left():
 class WinnerPredictor(nn.Module):
     def __init__(
         self,
-        encoder_model_name="google/bigbird-roberta-base",
+        encoder_model_name="google/bigbird-roberta-large",
         encoder_output_size=256,
     ):
         super(WinnerPredictor, self).__init__()
         self.encoder = BigBirdForSequenceClassification.from_pretrained(
-            "google/bigbird-roberta-base", num_labels=encoder_output_size
+            encoder_model_name, num_labels=encoder_output_size
         )
         self.batch_norm = nn.BatchNorm1d(encoder_output_size * 2)
         self.final_classifier = nn.Linear(encoder_output_size * 2, 1)
@@ -62,15 +60,15 @@ def train(
     split_ratio: float = 0.9,
     batch_size: int = 2,
     epochs: int = 10,
-    lr: float = 5e-5,
+    lr: float = 5e-4,
     weight_decay: float = 0.01,
     cards_path: str = "data/AtomicCards.json",
     cuda: bool = True,
     save_path: str = "models/transformer.pt",
     use_wandb: bool = True,
-    transformer_model: str = "google/bigbird-roberta-base",
-    dropout: float = 0.2,
-    gradient_accumulation_steps: int = 32,
+    transformer_model: str = "google/bigbird-roberta-large",
+    gradient_accumulation_steps: int = 64,
+    checkpoint_path: str = None,
 ):
     if use_wandb:
         run = wandb.init(project="MTGpred", reinit=True)
@@ -93,20 +91,66 @@ def train(
         cards_df, test_matches_ids, model_name=transformer_model
     )
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=4
+    )
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=True, num_workers=4
+    )
+
+    # TRAIN CONFIG
+    total_num_steps = int(len(train_dataloader) * epochs / gradient_accumulation_steps)
+    num_warmup_steps = int(total_num_steps * 0.1)
+
+    deepspeed_config = {
+        "train_micro_batch_size_per_gpu": batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "bf16": {
+            "enabled": True,
+        },
+        "zero_optimization": {
+            "stage": 2,
+            "allgather_partitions": True,
+            "allgather_bucket_size": 2e8,
+            "reduce_scatter": True,
+            "reduce_bucket_size": 2e8,
+            "overlap_comm": True,
+            "contiguous_gradients": True,
+            "cpu_offload": True,
+        },
+        "zero_allow_untested_optimizer": True,
+        "optimizer": {
+            "type": "Adam",
+            "params": {
+                "adam_w_mode": True,
+                "lr": 3e-5,
+                "betas": [0.9, 0.999],
+                "eps": 1e-8,
+                "weight_decay": 3e-7,
+            },
+        },
+    }
 
     # Train model
     model = WinnerPredictor(encoder_model_name=transformer_model).to(device)
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    squeduler = get_cosine_schedule_with_warmup(
+    optimizer = AdamW(params=model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = get_cosine_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=int(
-            len(train_dataloader) * epochs / gradient_accumulation_steps / 100
-        ),
+        num_warmup_steps=num_warmup_steps,
         num_training_steps=len(train_dataloader) * epochs / gradient_accumulation_steps,
     )
-    criterion = nn.MSELoss()
+
+    model_engine, optimizer, _, scheduler = deepspeed.initialize(
+        model=model,
+        optimizer=optimizer,
+        config_params=deepspeed_config,
+        lr_scheduler=scheduler,
+    )
+
+    if checkpoint_path is not None:
+        model_engine.load_checkpoint(checkpoint_path)
+
+    criterion = nn.BCEWithLogitsLoss()
 
     for epoch in range(epochs):
         print(f"======= EPOCH {epoch+1}/{epochs} =======")
@@ -119,10 +163,11 @@ def train(
         ):
             deck1 = deck1.to(device)
             deck2 = deck2.to(device)
-            target = target.to(device).to(torch.float32)
-            winner = model(deck1, deck2)
+            target = target.to(device).half()
+            winner = model_engine(deck1, deck2)
             loss = criterion(winner, target)
-            loss.backward()
+
+            model_engine.backward(loss)
 
             train_accuracy = accuracy(winner, target)
             train_accuracies.append(train_accuracy)
@@ -136,16 +181,14 @@ def train(
                         {
                             "train_steps_loss": np.mean(cum_train_losses),
                             "train_steps_accuracy": np.mean(cum_train_accuracies),
-                            "steps_lr": optimizer.param_groups[0]["lr"],
+                            "steps_lr": model_engine.get_lr()[0],
                         }
                     )
 
-                optimizer.step()
-                squeduler.step()
-                optimizer.zero_grad()
-
                 cum_train_losses = []
                 cum_train_accuracies = []
+
+            model_engine.step()
 
         print(f"Train loss: {sum(train_losses)/len(train_losses)}")
 
@@ -166,7 +209,7 @@ def train(
                 deck1 = deck1.to(device)
                 deck2 = deck2.to(device)
                 target = target.to(device).to(torch.float32)
-                winner = model(deck1, deck2)
+                winner = model_engine(deck1, deck2)
                 loss = criterion(winner, target)
                 test_losses.append(loss.item())
                 accuracies.append(accuracy(winner, target))
@@ -181,8 +224,13 @@ def train(
                     }
                 )
 
-        # Save model
-        torch.save(model.state_dict(), save_path)
+        if checkpoint_path is not None:
+            model_engine.save_checkpoint(
+                f"{checkpoint_path}/epoch_{epoch+1}.pt", client_state={"epoch": epoch}
+            )
+
+    # Save model_engine
+    torch.save(model_engine.state_dict(), save_path)
 
 
 if __name__ == "__main__":
