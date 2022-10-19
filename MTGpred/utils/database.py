@@ -45,6 +45,17 @@ def insert_tournament(tournament_data):
         db.tournaments.insert_one(tournament_insert_data)
 
 
+def insert_mtgtop8_decks(file_path):
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+
+    with open(file_path, "r") as f:
+        data = json.load(f)
+
+    for deck in data:
+        db.decks.insert_one(deck)
+
+
 def load_from_json(file_path):
     with open(file_path, "r") as f:
         data = json.load(f)
@@ -59,10 +70,13 @@ def get_all_matches_ids():
     return matches
 
 
-def get_all_decks():
+def get_all_decks(with_archetype=False):
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
-    decks = db.decks.find()
+    if with_archetype:
+        decks = db.decks.find({"archetype": {"$exists": True}})
+    else:
+        decks = db.decks.find()
     return decks
 
 
