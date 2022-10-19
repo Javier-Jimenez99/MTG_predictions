@@ -6,6 +6,7 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 import json
 from tqdm import tqdm
+from os.path import exists
 
 
 def scrape_deck_links(driver, output_file):
@@ -56,25 +57,33 @@ def scrape_deck_links(driver, output_file):
             ):
                 a_element = div.find_element(By.TAG_NAME, "a")
                 archetype_decks[base_archetype_text].append(
-                    a_element.get_attribute("href")
+                    {
+                        "link": a_element.get_attribute("href"),
+                        "detailed_archetype": a_element.text.lower().strip(),
+                    }
                 )
 
         # Get links to decks inside archetypes
-        for archetype, archetype_links in archetype_decks.items():
-            for archetype_link in archetype_links:
+        # {"aggro":[{"Rakdos Sacrifice": "https://mtgtop8.com/event?e=..."}, ...], ...}
+        for archetype, decks_data in archetype_decks.items():
+            # ["Rakdos Sacrifice", "https://mtgtop8.com/event?e=..."]
+            for deck_data in decks_data:
+                detailed_archetype = deck_data["detailed_archetype"]
+                archetype_link = deck_data["link"]
                 driver.get(archetype_link)
                 decks_table = driver.find_elements(
                     By.XPATH, "//tbody/tr/td[2]//tbody//tr[@class='hover_tr']/td[2]/a"
                 )
-
+                # ["https://mtgtop8.com/event?e=...", ...]
                 for deck in decks_table:
                     deck_link = deck.get_attribute("href")
                     if deck_link not in links_saved:
                         deck_data = {
                             "archetype": archetype,
-                            "detailed_archetype": deck.text.lower(),
-                            "link": deck_link,
+                            "detailed_archetype": detailed_archetype,
+                            "name": deck.text.lower(),
                             "format": option["format"],
+                            "link": deck_link,
                         }
                         all_decks_data.append(deck_data)
                         links_saved.append(deck_link)
@@ -84,9 +93,82 @@ def scrape_deck_links(driver, output_file):
     return all_decks_data
 
 
-def main(output_file: str = "data/mtgtop8_decks_links.json"):
+def scrape_cards(column_element):
+    deck_lines = column_element.find_elements(By.CLASS_NAME, "deck_line")
+    cards = []
+    for line in deck_lines:
+        card_name = line.find_element(By.CLASS_NAME, "L14").text
+        card_quantity = int(
+            line.text.replace(card_name, "").replace("banned", "").strip()
+        )
+
+        cards.append({"name": card_name, "quantity": card_quantity})
+
+    return cards
+
+
+def scrape_decks_data(driver, link):
+    driver.get(link)
+    deck_columns = driver.find_elements(
+        By.XPATH, "//body/div/div/div[7]/div[2]/div[3]/div"
+    )
+    main_deck_columns = deck_columns[:-1]
+    sideboard_column = deck_columns[-1]
+
+    deck_data = {
+        "main_deck": [],
+        "sideboard": [],
+    }
+
+    for column in main_deck_columns:
+        deck_data["main_deck"].extend(scrape_cards(column))
+
+    deck_data["sideboard"].extend(scrape_cards(sideboard_column))
+
+    return deck_data
+
+
+def main(
+    output_links_file: str = "data/mtgtop8_decks_links.json",
+    output_decks_file: str = None,
+    run_all: bool = False,
+):
+    assert not run_all or (
+        output_links_file is not None and output_decks_file is not None
+    ), "If run_all is True, output_links_file and output_decks_file must be specified"
     driver = webdriver.Chrome(ChromeDriverManager().install())
-    scrape_deck_links(driver, output_file)
+    if output_decks_file is None:
+        scrape_deck_links(driver, output_links_file)
+
+    if run_all or output_decks_file is not None:
+        with open(output_links_file, "r") as f:
+            meta_datas = json.load(f)
+
+        filtered_meta_datas = meta_datas
+        final_results = []
+        if exists(output_decks_file):
+            with open(output_decks_file, "r") as f:
+                final_results = json.load(f)
+
+            decks_data_links = [d["link"] for d in final_results]
+
+            filtered_meta_datas = [
+                data for data in meta_datas if data["link"] not in decks_data_links
+            ]
+
+        for i, meta in tqdm(
+            enumerate(filtered_meta_datas),
+            desc="SCRAPING DECKS",
+            total=len(filtered_meta_datas),
+        ):
+            scraped_deck = scrape_decks_data(driver, meta["link"])
+            meta.update(scraped_deck)
+            final_results.append(meta)
+
+            if i % 100 == 0:
+                json.dump(final_results, open(output_decks_file, "w"))
+                print(f"Saved {len(final_results)} decks")
+
     driver.quit()
 
 
