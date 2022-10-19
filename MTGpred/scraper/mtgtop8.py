@@ -1,12 +1,12 @@
-from threading import current_thread
-import typer
+import json
 import re
+from os.path import exists
+
+import typer
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
-import json
 from tqdm import tqdm
-from os.path import exists
+from webdriver_manager.chrome import ChromeDriverManager
 
 
 def scrape_deck_links(driver, output_file):
