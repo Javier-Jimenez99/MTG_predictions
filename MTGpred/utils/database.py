@@ -116,9 +116,14 @@ def get_deck(id):
     return deck
 
 
-def main(file_path: str = "data/tournaments.json"):
-    load_from_json(file_path)
+def main(tournaments: str = None, mtgtop8: str = None):
+    if tournaments is not None:
+        load_from_json(tournaments)
+    elif mtgtop8 is not None:
+        insert_mtgtop8_decks(mtgtop8)
+    else:
+        typer.echo("No file provided")
 
 
 if __name__ == "__main__":
-    typer.run(load_from_json)
+    typer.run(main)
