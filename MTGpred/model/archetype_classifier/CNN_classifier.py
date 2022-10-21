@@ -1,4 +1,6 @@
 import random
+from unittest.util import _MAX_LENGTH
+from numpy import empty
 
 import torch
 import typer
@@ -102,9 +104,11 @@ class DeckEncoder(nn.Module):
             return "cpu"
 
     def forward(self, deck, mask_length):
-        cards_encoded = torch.zeros(
-            (*deck["input_ids"].shape[:2], self.transformer_output_size)
-        ).to(self.get_device())
+        cards_encoded = (
+            torch.zeros((*deck["input_ids"].shape[:2], self.transformer_output_size))
+            .to(self.get_device())
+            .half()
+        )
 
         # Build a matrix mask for the transformer
         matrix_mask = torch.zeros(deck["input_ids"].shape[:2]).to(self.get_device())
@@ -153,8 +157,8 @@ class ArchetypeClassifier(nn.Module):
     def config(self):
         return self.encoder.config
 
-    def forward(self, deck, label=None):
-        deck_encoded = self.encoder(deck).logits
+    def forward(self, deck, mask_length, label=None):
+        deck_encoded = self.encoder(deck, mask_length).logits
         output = self.final_classifier(deck_encoded)
         winner = torch.sigmoid(output).squeeze(1)
 
@@ -177,6 +181,32 @@ def compute_metrics(pred):
     return {"accuracy": accuracy(preds, labels)}
 
 
+def custom_data_collator(dataset_elements):
+    keys = dataset_elements[0]["deck"][0].keys()
+    max_lengths = torch.tensor([deck["mask_length"] for deck in dataset_elements])
+    max_length = max_lengths.max().item()
+
+    encoded_data = {}
+    for k in keys:
+        decks = []
+        for dataset_element in dataset_elements:
+            cards = []
+            for card in dataset_element["deck"]:
+                cards.append(card[k])
+
+            cards.extend([torch.zeros(1, 256)] * (max_length - len(cards)))
+
+            decks.append(torch.cat(cards, dim=0))
+
+        encoded_data[k] = torch.stack(decks, dim=0).to(torch.long)
+
+    return {
+        "deck": encoded_data,
+        "mask_length": max_lengths,
+        "label": torch.tensor([deck["label"] for deck in dataset_elements]),
+    }
+
+
 def train(
     split_ratio: float = 0.9,
     batch_size: int = 1,
@@ -191,6 +221,7 @@ def train(
     gradient_accumulation_steps: int = 64,
     checkpoint_path: str = "models/chekpoints/",
     warmup_ratio: float = 0.1,
+    fp16: bool = True,
 ):
     if use_wandb:
         run = wandb.init(project="MTGpred", reinit=True)
@@ -262,6 +293,9 @@ def train(
     # Train model
     model = ArchetypeClassifier(transformer_model_name=transformer_model)
 
+    if fp16:
+        model = model.half()
+
     training_args = TrainingArguments(
         output_dir=checkpoint_path,
         overwrite_output_dir=True,
@@ -282,7 +316,7 @@ def train(
         report_to="wandb" if use_wandb else None,
         run_name=run.name if use_wandb else None,
         # deepspeed=deepspeed_config,
-        fp16=True,
+        fp16=fp16,
         logging_steps=1,
         # sharded_ddp=["zero_dp_3", "offload"],
     )
@@ -293,7 +327,7 @@ def train(
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
         compute_metrics=compute_metrics,
-        # data_collator=custom_data_collator,
+        data_collator=custom_data_collator,
     )
 
     trainer.train()

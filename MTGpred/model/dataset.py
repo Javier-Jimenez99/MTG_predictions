@@ -636,7 +636,7 @@ class DecksDataset(Dataset):
                 input_text,
                 return_tensors="pt",
                 padding="max_length",
-                max_length=2560,
+                max_length=256,
                 truncation=True,
             )
 
@@ -664,4 +664,5 @@ class DecksDataset(Dataset):
         return {
             "deck": deck,
             "label": self.labels.index(deck_data["archetype"]),
+            "mask_length": len(deck),
         }
