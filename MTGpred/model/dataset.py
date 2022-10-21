@@ -575,3 +575,93 @@ class MatchesDataset4(Dataset):
                     int(match_data["p2_points"]) < int(match_data["p1_points"])
                 ),
             }
+
+
+class DecksDataset(Dataset):
+    def __init__(
+        self,
+        cards_df,
+        decks_data,
+        model_name="xlnet-base-cased",
+        labels=["aggro", "control", "combo"],
+    ):
+        self.cards_df = cards_df
+        self.decks_data = decks_data
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        self.cards_df["faceName"] = self.cards_df["faceName"].apply(simplify_name)
+        self.cards_df["name"] = self.cards_df["name"].apply(simplify_name)
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.decks_data)
+
+    def preprocess_card(self, card):
+        name = card["name"]
+        simplified_name = simplify_name(name)
+        quantity = int(card["quantity"])
+        all_variations = []
+
+        selected_card = self.cards_df[
+            (self.cards_df["faceName"] == simplified_name)
+            | (self.cards_df["name"] == simplified_name)
+        ]
+        if len(selected_card) == 0:
+            print(
+                f"WARNING: {name} cant be found in the database. Will be removed from the deck."
+            )
+            return []
+
+        for index, variations in selected_card.iterrows():
+            mana_cost = (
+                parse_mana_cost(variations["manaCost"])
+                if not pd.isna(variations["manaCost"])
+                else ""
+            )
+
+            card_type = variations["type"]
+
+            text = variations["text"] if not pd.isna(variations["text"]) else ""
+            mana_in_text = re.findall(r"\{.*\}", text)
+            for mana in mana_in_text:
+                text = text.replace(mana, parse_mana_cost(mana))
+
+            stats = f"{variations['power']} power, {variations['power']} power"
+            quantity_text = f"{quantity} copies"
+            input_text = self.tokenizer.sep_token.join(
+                [quantity_text, name, mana_cost, card_type, text, stats]
+            )
+
+            tokenized_deck = self.tokenizer(
+                input_text,
+                return_tensors="pt",
+                padding="max_length",
+                max_length=2560,
+                truncation=True,
+            )
+
+            all_variations.append(tokenized_deck)
+
+        return all_variations
+
+    def get_tokenized_text(self, deck_data):
+
+        all_cards = []
+
+        for card in deck_data["main_deck"]:
+            all_cards.extend(self.preprocess_card(card))
+
+        for card in deck_data["sideboard"]:
+            all_cards.extend(self.preprocess_card(card))
+
+        return all_cards
+
+    def __getitem__(self, idx):
+        deck_data = self.decks_data[idx]
+
+        deck = self.get_tokenized_text(deck_data)
+
+        return {
+            "deck": deck,
+            "label": self.labels.index(deck_data["archetype"]),
+        }

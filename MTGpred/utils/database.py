@@ -80,6 +80,18 @@ def get_all_decks(with_archetype=False):
     return decks
 
 
+def get_all_decks_ids(with_archetype=False):
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["MTGpred"]
+    decks = None
+    if with_archetype:
+        decks = db.decks.find({"archetype": {"$exists": True}})
+    else:
+        decks = db.decks.find()
+
+    return decks.distinct("_id")
+
+
 def get_all_tournaments():
     client = MongoClient("mongodb://localhost:27017/")
     db = client["MTGpred"]
