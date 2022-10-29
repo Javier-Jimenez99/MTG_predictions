@@ -1,6 +1,5 @@
 import random
-from unittest.util import _MAX_LENGTH
-from numpy import empty
+import numpy as np
 
 import torch
 import typer
@@ -38,10 +37,12 @@ class ArchetypeClassifierOutput(ModelOutput):
 class EncoderCNN(nn.Module):
     def __init__(
         self,
-        input_size: int = 128,
+        input_shape: tuple[int] = (100, 128),
         output_size: int = 256,
     ):
         super(EncoderCNN, self).__init__()
+        input_shape_array = np.array(input_shape)
+
         # Suppose that decks are 2D tensors of shape (1,100,128) and output should be (256)
         self.conv1 = nn.Conv2d(1, 16, 3, padding="same")  # (16,100,128)
         self.maxpool1 = nn.MaxPool2d(2)  # (16,50,64)
@@ -54,9 +55,7 @@ class EncoderCNN(nn.Module):
         self.conv5 = nn.Conv2d(128, 256, 3, padding="same")  # (256,6,8)
         self.maxpool5 = nn.MaxPool2d(2)  # (256,3,4)
         self.flatten = nn.Flatten()  # (3072)
-        flatten_output_size = int(
-            int(output_size / 2**5) * int(input_size / 2**5) * 256
-        )
+        flatten_output_size = np.prod(input_shape_array // 2**5) * 256
         self.last_layer = nn.Linear(flatten_output_size, output_size)  # (256)
 
     def forward(self, x):
@@ -81,6 +80,7 @@ class DeckEncoder(nn.Module):
         self,
         transformer_model_name: str = "xlnet-base-cased",
         encoder_output_size: int = 256,
+        deck_size: int = 100,
         transformer_output_size: int = 128,
     ):
         super(DeckEncoder, self).__init__()
@@ -88,8 +88,9 @@ class DeckEncoder(nn.Module):
         self.transformer = AutoModelForSequenceClassification.from_pretrained(
             transformer_model_name, num_labels=transformer_output_size
         )
+        self.deck_size = deck_size
         self.CNN = EncoderCNN(
-            input_size=transformer_output_size,
+            input_shape=(deck_size, transformer_output_size),
             output_size=encoder_output_size,
         )
 
@@ -105,13 +106,23 @@ class DeckEncoder(nn.Module):
 
     def forward(self, deck, mask_length):
         cards_encoded = (
-            torch.zeros((*deck["input_ids"].shape[:2], self.transformer_output_size))
+            # torch.zeros((*deck["input_ids"].shape[:2], self.transformer_output_size))
+            torch.zeros(
+                (
+                    deck["input_ids"].shape[0],
+                    self.deck_size,
+                    self.transformer_output_size,
+                )
+            )
             .to(self.get_device())
             .half()
         )
 
         # Build a matrix mask for the transformer
-        matrix_mask = torch.zeros(deck["input_ids"].shape[:2]).to(self.get_device())
+        # matrix_mask = torch.zeros(deck["input_ids"].shape[:2]).to(self.get_device())\
+        matrix_mask = torch.zeros(deck["input_ids"].shape[0], self.deck_size).to(
+            self.get_device()
+        )
         for i, length in enumerate(mask_length):
             matrix_mask[i, :length] = torch.ones(length)
 
@@ -129,6 +140,7 @@ class DeckEncoder(nn.Module):
                 **encoding_data
             )["logits"]
 
+        cards_encoded = cards_encoded.unsqueeze(1)
         encoded_deck = self.CNN(cards_encoded)
         return encoded_deck
 
@@ -158,12 +170,12 @@ class ArchetypeClassifier(nn.Module):
         return self.encoder.config
 
     def forward(self, deck, mask_length, label=None):
-        deck_encoded = self.encoder(deck, mask_length).logits
+        deck_encoded = self.encoder(deck, mask_length)
         output = self.final_classifier(deck_encoded)
         winner = torch.sigmoid(output).squeeze(1)
 
         if label is not None:
-            loss = self.criterion(winner, label.to(torch.float32))
+            loss = self.criterion(winner, label)
             return ArchetypeClassifierOutput(loss=loss, logits=winner)
         else:
             return ArchetypeClassifierOutput(logits=winner)
@@ -217,7 +229,7 @@ def train(
     cuda: bool = True,
     save_path: str = "models/",
     use_wandb: bool = True,
-    transformer_model: str = "xlnet-base-cased",
+    transformer_model: str = "bert-base-cased",
     gradient_accumulation_steps: int = 64,
     checkpoint_path: str = "models/chekpoints/",
     warmup_ratio: float = 0.1,
