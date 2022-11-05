@@ -78,6 +78,8 @@ def simplify_name(name):
         .replace(".", "")
         .replace("?amp?", "")
         .replace("&", "")
+        .replace("//", "/")
+        .replace("/s+", " ")
     )
     name = name.strip()
     return name

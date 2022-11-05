@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from transformers.utils import ModelOutput
 from typing import Optional
 import os
+from typing import Iterable
 
 
 def get_space_left():
@@ -37,7 +38,7 @@ class ArchetypeClassifierOutput(ModelOutput):
 class EncoderCNN(nn.Module):
     def __init__(
         self,
-        input_shape: tuple[int] = (100, 128),
+        input_shape: Iterable[int] = (100, 128),
         output_size: int = 256,
     ):
         super(EncoderCNN, self).__init__()
@@ -221,7 +222,7 @@ def custom_data_collator(dataset_elements):
 
 def train(
     split_ratio: float = 0.9,
-    batch_size: int = 1,
+    batch_size: int = 4,
     epochs: int = 10,
     lr: float = 1e-5,
     weight_decay: float = 0.01,
@@ -230,7 +231,7 @@ def train(
     save_path: str = "models/",
     use_wandb: bool = True,
     transformer_model: str = "bert-base-cased",
-    gradient_accumulation_steps: int = 64,
+    gradient_accumulation_steps: int = 128,
     checkpoint_path: str = "models/chekpoints/",
     warmup_ratio: float = 0.1,
     fp16: bool = True,
@@ -305,8 +306,8 @@ def train(
     # Train model
     model = ArchetypeClassifier(transformer_model_name=transformer_model)
 
-    if fp16:
-        model = model.half()
+    # if fp16:
+    #    model = model.half()
 
     training_args = TrainingArguments(
         output_dir=checkpoint_path,
