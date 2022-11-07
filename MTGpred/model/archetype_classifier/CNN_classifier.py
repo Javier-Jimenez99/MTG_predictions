@@ -183,8 +183,8 @@ class ArchetypeClassifier(nn.Module):
 
 
 def accuracy(y_pred, y_true):
-    y_pred = y_pred > 0
-    y_true = y_true > 0
+    y_pred = torch.tensor(y_pred).argmax(dim=1)
+    y_true = torch.tensor(y_true)
     return (y_pred == y_true).sum().item() / len(y_pred)
 
 
@@ -222,18 +222,18 @@ def custom_data_collator(dataset_elements):
 
 def train(
     split_ratio: float = 0.9,
-    batch_size: int = 4,
+    batch_size: int = 2,
     epochs: int = 10,
-    lr: float = 1e-5,
+    lr: float = 1e-4,
     weight_decay: float = 0.01,
     cards_path: str = "data/AtomicCards.json",
     cuda: bool = True,
     save_path: str = "models/",
     use_wandb: bool = True,
     transformer_model: str = "bert-base-cased",
-    gradient_accumulation_steps: int = 128,
+    gradient_accumulation_steps: int = 32,
     checkpoint_path: str = "models/chekpoints/",
-    warmup_ratio: float = 0.1,
+    warmup_ratio: float = 0,
     fp16: bool = True,
 ):
     if use_wandb:
@@ -245,6 +245,7 @@ def train(
     # Load data
     all_decks_data = list(get_all_decks(with_archetype=True))
     random.shuffle(all_decks_data)
+    all_decks_data = all_decks_data[:5000]
     split = int(len(all_decks_data) * split_ratio)
     train_decks = all_decks_data[:split]
     test_decks = all_decks_data[split:]
@@ -320,7 +321,7 @@ def train(
         learning_rate=lr,
         weight_decay=weight_decay,
         warmup_ratio=warmup_ratio,
-        lr_scheduler_type="cosine_with_restarts",
+        lr_scheduler_type="constant_with_warmup",
         save_strategy="epoch",
         save_total_limit=1,
         no_cuda=not cuda,
