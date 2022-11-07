@@ -53,7 +53,7 @@ def insert_mtgtop8_decks(file_path):
         data = json.load(f)
 
     for deck in data:
-        if len(data["main_deck"]) > 0:
+        if len(deck["main_deck"]) > 0:
             db.decks.insert_one(deck)
 
 
@@ -139,9 +139,9 @@ def main(tournaments: str = None, mtgtop8: str = None, clean_all: bool = False):
 
     if tournaments is not None:
         load_from_json(tournaments)
-    elif mtgtop8 is not None:
+    if mtgtop8 is not None:
         insert_mtgtop8_decks(mtgtop8)
-    else:
+    if tournaments is not None and mtgtop8 is not None:
         typer.echo("No file provided")
 
 
