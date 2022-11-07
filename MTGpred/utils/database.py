@@ -129,7 +129,14 @@ def get_deck(id):
     return deck
 
 
-def main(tournaments: str = None, mtgtop8: str = None):
+def main(tournaments: str = None, mtgtop8: str = None, clean_all: bool = False):
+    if clean_all:
+        client = MongoClient("mongodb://localhost:27017/")
+        db = client["MTGpred"]
+        db.decks.drop()
+        db.matches.drop()
+        db.tournaments.drop()
+
     if tournaments is not None:
         load_from_json(tournaments)
     elif mtgtop8 is not None:
