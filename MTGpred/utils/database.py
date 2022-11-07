@@ -53,7 +53,8 @@ def insert_mtgtop8_decks(file_path):
         data = json.load(f)
 
     for deck in data:
-        db.decks.insert_one(deck)
+        if len(data["main_deck"]) > 0:
+            db.decks.insert_one(deck)
 
 
 def load_from_json(file_path):
