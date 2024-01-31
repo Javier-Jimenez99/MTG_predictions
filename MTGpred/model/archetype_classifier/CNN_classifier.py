@@ -175,6 +175,8 @@ class ArchetypeClassifier(nn.Module):
         output = self.final_classifier(deck_encoded)
         winner = torch.sigmoid(output).squeeze(1)
 
+        print("winner", winner)
+
         if label is not None:
             loss = self.criterion(winner, label)
             return ArchetypeClassifierOutput(loss=loss, logits=winner)
@@ -222,7 +224,7 @@ def custom_data_collator(dataset_elements):
 
 def train(
     split_ratio: float = 0.9,
-    batch_size: int = 2,
+    batch_size: int = 1,
     epochs: int = 10,
     lr: float = 1e-4,
     weight_decay: float = 0.01,
