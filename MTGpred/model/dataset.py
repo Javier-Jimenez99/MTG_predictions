@@ -5,6 +5,7 @@ from transformers import AutoTokenizer, AutoModel, BatchEncoding, BigBirdTokeniz
 import torch
 import re
 import pandas as pd
+from typing import Iterable
 
 ACCENTS = {
     "á": "a",
@@ -582,11 +583,43 @@ class MatchesDataset4(Dataset):
 class DecksDataset(Dataset):
     def __init__(
         self,
-        cards_df,
-        decks_data,
-        model_name="xlnet-base-cased",
-        labels=["aggro", "control", "combo"],
+        cards_df:pd.DataFrame,
+        decks_data:dict[str, str],
+        model_name:str="xlnet-base-cased",
+        cased:bool = True,
+        labels: Iterable[str]=["aggro", "control", "combo"],
+        join_tokens:bool = False,
+        max_length:int = 256,
+        truncation:bool = True,
+        sideboard:bool = False,
     ):
+        """
+        Dataset for decks classification
+
+        Parameters
+        ----------
+        cards_df : pd.DataFrame
+            Dataframe with all the cards
+        decks_data : dict[str, str]
+            Dictionary with the decks data
+        model_name : str, optional
+            Name of the transformer model, by default "xlnet-base-cased"
+        cased : bool, optional
+            Cased the card output or not, by default True
+        labels : Iterable[str], optional
+            Output option labels, by default ["aggro", "control", "combo"]
+        join_tokens : bool, optional
+            Join all texts and tokenize all or not, by default False
+        max_length : int, optional
+            Max length of the tokenizer, by default 256
+        truncation : bool, optional
+            Truncate the text or not, by default True
+        sideboard : bool, optional
+            Include the sideboard or not, by default False
+        """
+
+        assert not join_tokens or (join_tokens and truncation), "If join_tokens is True, truncation must be True"
+
         self.cards_df = cards_df
         self.decks_data = decks_data
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -594,6 +627,11 @@ class DecksDataset(Dataset):
         self.cards_df["faceName"] = self.cards_df["faceName"].apply(simplify_name)
         self.cards_df["name"] = self.cards_df["name"].apply(simplify_name)
         self.labels = labels
+        self.cased = cased
+        self.join_tokens = join_tokens
+        self.max_length = max_length
+        self.truncation = truncation
+        self.sideboard = sideboard
 
     def __len__(self):
         return len(self.decks_data)
@@ -630,19 +668,14 @@ class DecksDataset(Dataset):
 
             stats = f"{variations['power']} power, {variations['power']} power"
             quantity_text = f"{quantity} copies"
-            input_text = self.tokenizer.sep_token.join(
+            input_text = ". ".join(
                 [quantity_text, name, mana_cost, card_type, text, stats]
             )
 
-            tokenized_deck = self.tokenizer(
-                input_text,
-                return_tensors="pt",
-                padding="max_length",
-                max_length=256,
-                truncation=True,
-            )
-
-            all_variations.append(tokenized_deck)
+            if not self.cased:
+                input_text = input_text.lower()
+            
+            all_variations.append(input_text)
 
         return all_variations
 
@@ -652,19 +685,45 @@ class DecksDataset(Dataset):
 
         for card in deck_data["main_deck"]:
             all_cards.extend(self.preprocess_card(card))
+        
+        if self.sideboard:
+            for card in deck_data["sideboard"]:
+                all_cards.extend(self.preprocess_card(card))
 
-        for card in deck_data["sideboard"]:
-            all_cards.extend(self.preprocess_card(card))
+        if self.join_tokens:
+            all_cards = self.tokenizer.sep_token.join(all_cards)
 
-        return all_cards
+            tokenized_deck = self.tokenizer(
+                all_cards,
+                padding="max_length",
+                max_length=self.max_length,
+                truncation=self.truncation,
+            )
+        else:
+            tokenized_deck = []
+            for card in all_cards:
+                tokenized_deck.append(self.tokenizer(
+                    card,
+                    return_tensors="pt",
+                    padding="max_length",
+                    max_length=self.max_length,
+                    truncation=self.truncation,
+                ))
+
+        return tokenized_deck
 
     def __getitem__(self, idx):
         deck_data = self.decks_data[idx]
 
         deck = self.get_tokenized_text(deck_data)
 
-        return {
-            "deck": deck,
-            "label": self.labels.index(deck_data["archetype"]),
-            "mask_length": len(deck),
-        }
+        if self.join_tokens:
+            deck["labels"] = torch.tensor(self.labels.index(deck_data["archetype"]))
+
+            return deck
+        else:
+            return {
+                "input": deck,
+                "label": self.labels.index(deck_data["archetype"]),
+                "mask_length": len(deck),
+            }
