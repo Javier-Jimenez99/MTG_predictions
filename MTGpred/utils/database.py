@@ -1,7 +1,7 @@
 from pymongo import MongoClient
 import json
 import typer
-
+import pandas as pd
 
 def insert_tournament(tournament_data):
     client = MongoClient("mongodb://localhost:27017/")
@@ -127,6 +127,16 @@ def get_deck(id):
     db = client["MTGpred"]
     deck = db.decks.find_one({"_id": id})
     return deck
+
+def export_matches_to_csv(output_path: str = "./data/matches.csv"):
+    matches_ids = get_all_matches_ids()
+    matches = [get_match(match_id) for match_id in matches_ids]
+    df_matches = pd.DataFrame(matches)
+    
+    df_matches["p1_deck"] = df_matches["p1_deck"].apply(lambda x: get_deck(x))
+    df_matches["p2_deck"] = df_matches["p2_deck"].apply(lambda x: get_deck(x))
+
+    df_matches.to_csv(output_path, index=False)
 
 
 def main(tournaments: str = None, mtgtop8: str = None, clean_all: bool = False):
