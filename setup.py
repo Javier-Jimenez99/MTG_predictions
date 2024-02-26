@@ -18,6 +18,9 @@ setuptools.setup(
         "typer",
         "sentencepiece",
         "black",
-        #"mpi4py", Install with conda
+        "transformers",
+        "evaluate",
+        "scikit-learn",
+        # "mpi4py", Install with conda
     ],
 )
