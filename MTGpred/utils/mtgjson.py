@@ -80,7 +80,10 @@ def simplify_name(name):
     name = name.strip()
     return name
 
-def load_cards_df(data_path:str="data/AtomicCards.json", simplify_names:bool=True):
+
+def load_cards_df(
+    data_path: str = "data/AtomicCards.json", simplify_names: bool = True
+):
     all_cards_json = json.load(open(data_path, encoding="utf8"))["data"]
 
     all_cards = []
@@ -103,7 +106,7 @@ def load_cards_df(data_path:str="data/AtomicCards.json", simplify_names:bool=Tru
     if simplify_names:
         df["name"] = df["name"].apply(simplify_name)
         df["faceName"] = df["faceName"].apply(simplify_name)
-        
+
     renames = {col: col.strip() for col in df.columns}
     df = df.rename(columns=renames)
 
@@ -130,10 +133,10 @@ def parse_mana_cost(mana_cost):
         elif v == "{":
             continue
         elif v == "}":
-            mana_parsed += ","
-        elif v.isdigit():
-            mana_parsed += " ".join(["corlorless"] * int(v))
+            mana_parsed += ", "
+        elif v.isdigit() or v == "X":
+            mana_parsed += f"{v} colorless"
         else:
             mana_parsed += " "
 
-    return mana_cost
+    return mana_parsed
